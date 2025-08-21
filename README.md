@@ -46,7 +46,9 @@ You can add the Redirect URI now if you already know your final URL, or come bac
 Open index.html and set these constants near the top:
 
 const CLIENT_ID = "YOUR_SPOTIFY_CLIENT_ID";              // from developer dashboard
+
 const REDIRECT_URI = "https://YOURUSER.github.io/YOUR-REPO-NAME/"; // exact public URL, trailing slash
+
 const SCOPES = ["user-read-currently-playing", "user-read-playback-state"];
 
 
@@ -65,9 +67,11 @@ Create a public repo, e.g., spotify-obs-overlay.
 Add index.html at the root of the repo.
 
 Repo → Settings → Pages → Build and deployment → Source = Deploy from a branch.
+
 Branch = main, Folder = / (root) → Save.
 
 Wait ~1 minute. GitHub shows:
+
 Your site is live at https://YOURUSERNAME.github.io/spotify-obs-overlay/
 
 Now go back to your Spotify app’s Edit Settings → Redirect URIs and add that exact URL (with trailing slash), then Save.
@@ -97,6 +101,7 @@ Local Development (optional)
 If you want to test locally before pushing:
 
 # from the folder that contains index.html
+
 python3 -m http.server 5500
 
 
@@ -141,6 +146,7 @@ INVALID_CLIENT: Invalid client
 You pasted the Client Secret by mistake — use Client ID only.
 
 Your REDIRECT_URI in code doesn’t exactly match the one in Spotify settings (domain, path, trailing slash).
+
 Fix both to the same exact string and click Save in the dashboard.
 
 GitHub Pages shows 404
@@ -152,6 +158,7 @@ index.html must be at repo root.
 Settings → Pages → Source = Deploy from a branch, main, / (root).
 
 Wait ~1 minute; then use the shown URL:
+
 https://YOURUSER.github.io/YOUR-REPO-NAME/
 
 Can’t click the button in OBS
@@ -215,6 +222,7 @@ No. The API endpoint we use is read-only and works with Free.
 License
 
 You can use and modify this overlay freely for your stream or site.
+
 If you want a formal license, drop an MIT LICENSE file in the repo—happy to generate one for you.
 
 Credits
