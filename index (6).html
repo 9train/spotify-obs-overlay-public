@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Spotify Now Playing – OBS Overlay</title>
+  <style>
+    :root {
+      --card-bg: rgba(15,15,20,0.65);
+      --text: #ffffff;
+      --muted: rgba(255,255,255,0.8);
+      --shadow: 0 10px 30px rgba(0,0,0,0.35);
+      --radius: 20px;
+    }
+    html, body {
+      height: 100%;
+      margin: 0;
+      background: transparent;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Inter, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+      color: var(--text);
+    }
+    .overlay {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 340px; /* info grows | art fixed */
+      align-items: center;
+      column-gap: 16px;
+      padding: 20px;
+      width: 100%;
+      height: 100%;
+      box-sizing: border-box;
+    }
+
+    .info-card {
+      min-width: 0; /* allow shrinking so art never drops */
+      max-width: 1100px;
+      padding: 28px 28px 24px 28px;
+      border-radius: var(--radius);
+      background: linear-gradient(135deg, rgba(60,60,80,0.85), rgba(20,20,35,0.85));
+      box-shadow: var(--shadow);
+      position: relative; /* for layering */
+      overflow: hidden;
+    }
+    /* make sure the glow never eats clicks */
+    .soft-glow {
+      position: absolute; inset: -25%;
+      filter: blur(40px);
+      opacity: 0.55; pointer-events: none;
+      background: radial-gradient(circle at 30% 20%, rgba(255,255,255,0.18), rgba(0,0,0,0) 60%);
+      z-index: 0;
+    }
+    /* content sits above the glow */
+    .info-card > * { position: relative; z-index: 1; }
+
+    .title {
+      font-weight: 800; letter-spacing: 0.3px; line-height: 1.1;
+      font-size: 56px; margin: 0 0 10px 0; text-shadow: 0 2px 12px rgba(0,0,0,0.35);
+    }
+    .subtitle { font-size: 34px; margin: 0 0 20px 0; color: var(--muted); }
+
+    .row { display: flex; align-items: center; gap: 16px; justify-content: space-between; }
+    .time { font-weight: 800; font-size: 40px; width: 140px; text-align: left; white-space: nowrap; }
+    .time.right { text-align: right; }
+
+    .bar { position: relative; height: 16px; flex: 1; border-radius: 999px; background: rgba(255,255,255,0.14); overflow: hidden; }
+    .bar > .fill { position: absolute; inset: 0; width: 0%; background: rgba(255,255,255,0.92); border-radius: inherit; }
+
+    .art-card { width: 340px; height: 340px; border-radius: 28px; overflow: hidden; box-shadow: var(--shadow); justify-self: end; }
+    .art-card img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+    .connect { 
+      appearance: none; background: #1DB954; color: #000; font-weight: 800; border: none; 
+      padding: 14px 18px; border-radius: 999px; cursor: pointer; box-shadow: var(--shadow);
+      font-size: 18px; position: relative; z-index: 2; /* ensure clickable */
+    }
+
+    /* Hide connect/status when authenticated (CSS-level) */
+    body.connected .connect { display: none !important; }
+    body.connected #statusMsg { display: none; }
+
+    /* Optional: keep side-by-side on small OBS windows */
+    @media (max-width: 900px) {
+      .overlay { grid-template-columns: minmax(0, 1fr) 260px; }
+      .art-card { width: 260px; height: 260px; justify-self: end; }
+      .title { font-size: 36px; }
+      .subtitle { font-size: 20px; }
+      .time { font-size: 22px; width: 90px; }
+      .info-card { min-width: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="overlay">
+    <div class="info-card" id="infoCard">
+      <div class="soft-glow" id="softGlow"></div>
+      <h1 class="title" id="title">Not connected</h1>
+      <p class="subtitle" id="subtitle">Click connect to show your current Spotify track</p>
+
+      <div class="row" style="margin-top: 6px;">
+        <div class="time" id="elapsed">0:00</div>
+        <div class="bar" aria-label="progress">
+          <div class="fill" id="fill"></div>
+        </div>
+        <div class="time right" id="remaining">-0:00</div>
+      </div>
+
+      <div style="margin-top: 18px">
+        <button class="connect" id="connectBtn" aria-hidden="false">Connect to Spotify</button>
+        <span id="statusMsg" style="margin-left: 12px; opacity: .85;"></span>
+      </div>
+    </div>
+
+    <div class="art-card" id="artCard">
+      <img id="art" alt="Album art" src="" />
+    </div>
+  </div>
+
+<script>
+/****************************
+ * 1) CONFIG – EDIT THIS
+ ****************************/
+const CLIENT_ID = "8d3230ed8cbb41609244dc94e87b7dbd";
+const REDIRECT_URI = "https://9train.github.io/spotify-obs-overlay/";
+const SCOPES = ["user-read-currently-playing", "user-read-playback-state"];
+
+/****************************
+ * PKCE OAuth helpers
+ ****************************/
+async function sha256(plain) { const enc = new TextEncoder().encode(plain); const buf = await crypto.subtle.digest('SHA-256', enc); return new Uint8Array(buf); }
+function base64url(uint8) { return btoa(String.fromCharCode(...uint8)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
+function randStr(n=64){ const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'; let s=''; for(let i=0;i<n;i++) s+=chars[Math.floor(Math.random()*chars.length)]; return s; }
+
+/* --- Auth/UI helpers --- */
+function hideConnect() {
+  const btn = document.getElementById('connectBtn');
+  const status = document.getElementById('statusMsg');
+  if (btn) btn.remove();
+  if (status) status.remove();
+}
+function setConnectedUI(connected){
+  document.body.classList.toggle('connected', !!connected);
+  if (connected) hideConnect();
+}
+
+async function beginAuth(){
+  const verifier = randStr(64);
+  const challenge = base64url(await sha256(verifier));
+  sessionStorage.setItem('pkce_verifier', verifier);
+  const url = new URL('https://accounts.spotify.com/authorize');
+  url.searchParams.set('client_id', CLIENT_ID);
+  url.searchParams.set('response_type','code');
+  url.searchParams.set('redirect_uri', REDIRECT_URI);
+  url.searchParams.set('scope', SCOPES.join(' '));
+  url.searchParams.set('code_challenge_method','S256');
+  url.searchParams.set('code_challenge', challenge);
+  location.href = url.toString();
+}
+
+async function exchangeToken(code){
+  const verifier = sessionStorage.getItem('pkce_verifier');
+  const body = new URLSearchParams({
+    client_id: CLIENT_ID,
+    grant_type: 'authorization_code',
+    code, redirect_uri: REDIRECT_URI, code_verifier: verifier
+  });
+  const r = await fetch('https://accounts.spotify.com/api/token',{ method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body });
+  if(!r.ok) throw new Error('Token exchange failed');
+  const data = await r.json();
+  const exp = Date.now() + (data.expires_in-60)*1000;
+  localStorage.setItem('sp_access', data.access_token);
+  localStorage.setItem('sp_refresh', data.refresh_token);
+  localStorage.setItem('sp_exp', String(exp));
+  setConnectedUI(true); /* hide button immediately */
+}
+
+async function refresh(){
+  const refresh_token = localStorage.getItem('sp_refresh');
+  if(!refresh_token) { setConnectedUI(false); return; } // don't auto beginAuth in OBS
+  const body = new URLSearchParams({ client_id: CLIENT_ID, grant_type: 'refresh_token', refresh_token });
+  const r = await fetch('https://accounts.spotify.com/api/token',{ method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body });
+  if(!r.ok) { setConnectedUI(false); return; }
+  const data = await r.json();
+  const exp = Date.now() + (data.expires_in-60)*1000;
+  localStorage.setItem('sp_access', data.access_token);
+  if(data.refresh_token) localStorage.setItem('sp_refresh', data.refresh_token);
+  localStorage.setItem('sp_exp', String(exp));
+  setConnectedUI(true); /* hide button after refresh */
+}
+
+function accessToken(){
+  const tok = localStorage.getItem('sp_access');
+  const exp = Number(localStorage.getItem('sp_exp')||0);
+  if(!tok || Date.now()>exp) return null;
+  return tok;
+}
+
+/****************************
+ * UI refs
+ ****************************/
+const titleEl = document.getElementById('title');
+const subEl = document.getElementById('subtitle');
+const artImg = document.getElementById('art');
+const fillEl = document.getElementById('fill');
+const elTime = document.getElementById('elapsed');
+const reTime = document.getElementById('remaining');
+const statusMsg = document.getElementById('statusMsg');
+
+/****************************
+ * Progress + gradient
+ ****************************/
+let playing = null;
+let progressMs = 0, durationMs = 0, lastTick = 0;
+
+function fmt(ms){
+  ms = Math.max(0, Math.round(ms/1000));
+  const m = Math.floor(ms/60), s = ms%60; return `${m}:${String(s).padStart(2,'0')}`;
+}
+
+function updateProgressLoop(){
+  const now = Date.now();
+  if(playing && !playing.is_playing){ lastTick = now; requestAnimationFrame(updateProgressLoop); return; }
+  if(playing){
+    const delta = now - lastTick; lastTick = now; progressMs += delta; 
+    const pct = Math.max(0, Math.min(100, (progressMs/durationMs)*100));
+    document.getElementById('fill').style.width = pct + '%';
+    elTime.textContent = fmt(progressMs);
+    reTime.textContent = '-' + fmt(durationMs - progressMs);
+  }
+  requestAnimationFrame(updateProgressLoop);
+}
+
+function setGradientFromImage(img){
+  const c = document.createElement('canvas'); c.width = 20; c.height = 20; const ctx = c.getContext('2d');
+  ctx.drawImage(img, 0,0,20,20);
+  const data = ctx.getImageData(0,0,20,20).data;
+  let r=0,g=0,b=0,count=0;
+  for(let i=0;i<data.length;i+=4){ r+=data[i]; g+=data[i+1]; b+=data[i+2]; count++; }
+  r=Math.round(r/count); g=Math.round(g/count); b=Math.round(b/count);
+  const base = `rgba(${r},${g},${b},0.9)`;
+  const lr = Math.min(255, Math.round(r*1.2+15));
+  const lg = Math.min(255, Math.round(g*1.2+15));
+  const lb = Math.min(255, Math.round(b*1.2+15));
+  const light = `rgba(${lr},${lg},${lb},0.7)`;
+  document.getElementById('infoCard').style.background = `linear-gradient(120deg, ${light}, ${base})`;
+  document.getElementById('softGlow').style.background = `radial-gradient(circle at 30% 30%, rgba(${lr},${lg},${lb},0.45), rgba(0,0,0,0) 60%)`;
+}
+
+/****************************
+ * Spotify polling
+ ****************************/
+async function getCurrent(){
+  try {
+    let tok = accessToken();
+    if(!tok) { await refresh(); tok = accessToken(); }
+    setConnectedUI(!!tok); /* ensure button hidden if we have a token */
+
+    if(!tok) { if(statusMsg) statusMsg.textContent = 'Click connect'; return; }
+
+    const r = await fetch('https://api.spotify.com/v1/me/player/currently-playing', { headers:{ Authorization: `Bearer ${tok}` } });
+    if(r.status===204){ if(statusMsg) statusMsg.textContent = 'Nothing playing'; return; }
+    if(r.status===401){ setConnectedUI(false); return; }
+    const data = await r.json();
+    if(!data || !data.item){ if(statusMsg) statusMsg.textContent = 'No track'; return; }
+
+    playing = data;
+    progressMs = data.progress_ms || 0; durationMs = data.item.duration_ms || 1; lastTick = Date.now();
+
+    const name = data.item.name;
+    const artists = (data.item.artists||[]).map(a=>a.name).join(', ');
+    titleEl.textContent = name;
+    subEl.textContent = artists;
+
+    const imgs = data.item.album?.images || [];
+    const best = imgs.sort((a,b)=>b.width-a.width)[0];
+    if(best){
+      const art = document.getElementById('art');
+      art.src = best.url;
+      art.addEventListener('load', ()=> setGradientFromImage(art), { once:true });
+    }
+    if(statusMsg) statusMsg.textContent = data.is_playing? 'Playing' : 'Paused';
+
+    setConnectedUI(true); /* hide button after first successful fetch */
+  } catch (e){ if(statusMsg) statusMsg.textContent = 'Error fetching'; console.error(e); }
+}
+
+/* Robust click handler (works even if the button is re-rendered) */
+document.addEventListener('click', (e) => {
+  const target = e.target.closest && e.target.closest('#connectBtn');
+  if (target) { beginAuth(); }
+});
+
+/* Init */
+(async function init(){
+  // If we came back from Spotify with a code, exchange it.
+  const u = new URL(location.href);
+  const code = u.searchParams.get('code');
+  if(code){
+    history.replaceState({}, '', REDIRECT_URI);
+    try { await exchangeToken(code); } catch(e){ console.error(e); }
+  }
+
+  // If a token is already cached, hide the button immediately.
+  setConnectedUI(!!accessToken());
+
+  lastTick = Date.now();
+  requestAnimationFrame(updateProgressLoop);
+  await getCurrent();
+  setInterval(getCurrent, 4000);
+})();
+</script>
+</body>
+</html>
