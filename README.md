@@ -27,6 +27,7 @@ A Spotify Developer App (free).
 
 Somewhere to host a static file (GitHub Pages recommended).
 
+
 1) Create a Spotify App
 
 Go to https://developer.spotify.com/dashboard
@@ -40,6 +41,7 @@ If using GitHub Pages project site, it will look like:
 https://YOURUSERNAME.github.io/YOUR-REPO-NAME/ (include the trailing slash!)
 
 You can add the Redirect URI now if you already know your final URL, or come back after deploying.
+
 
 2) Configure the Overlay
 
@@ -57,6 +59,7 @@ Important:
 CLIENT_ID must be in quotes.
 
 REDIRECT_URI must exactly match the one saved in your Spotify app (same domain/path and trailing slash).
+
 
 3) Deploy to GitHub Pages
 
@@ -77,6 +80,7 @@ Your site is live at https://YOURUSERNAME.github.io/spotify-obs-overlay/
 Now go back to your Spotify app’s Edit Settings → Redirect URIs and add that exact URL (with trailing slash), then Save.
 
 Got a 404? Ensure the repo is public, index.html is at the root, and Pages is set to main + / (root).
+
 
 4) Use It in OBS
 
@@ -141,6 +145,7 @@ The page polls GET /v1/me/player/currently-playing every ~4s and animates the pr
 Album art colors are sampled to create the background gradient.
 
 Troubleshooting
+
 INVALID_CLIENT: Invalid client
 
 You pasted the Client Secret by mistake — use Client ID only.
@@ -207,6 +212,7 @@ Project Structure
 └─ index.html        # the whole app (HTML + CSS + JS)
 
 FAQ
+
 Can anyone use my link to see their own “Now Playing”?
 
 Yes. Each visitor clicks Connect to Spotify and authorizes your app. They’ll see their playback.
